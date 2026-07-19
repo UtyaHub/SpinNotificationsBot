@@ -1,0 +1,9 @@
+.env
+.chat_id
+.chat_ids
+pending_streamers.json
+roulette_states.json
+debug/
+__pycache__/
+*.pyc
+.mimocode/
