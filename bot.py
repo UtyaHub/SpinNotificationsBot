@@ -201,6 +201,7 @@ monitor = StreamMonitor()
 chat_ids: set[int] = load_chat_ids()
 muted_chats: set[int] = set()
 last_cycle_time = {"time": ""}
+last_backup_time = 0
 
 _extra = load_extra_streamers()
 for s in _extra:
@@ -476,9 +477,10 @@ async def monitoring_loop(bot: Bot):
         save_roulette_states(monitor._states)
         last_cycle_time["time"] = datetime.now().strftime("%H:%M:%S")
 
-        # Hourly backup
-        now = datetime.now()
-        if now.minute == 0 and now.second < 10:
+        # Hourly backup (once per hour from bot start)
+        elapsed_total = time.monotonic()
+        if elapsed_total - last_backup_time >= 3600:
+            last_backup_time = elapsed_total
             try:
                 backup_data()
             except Exception as e:
