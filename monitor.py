@@ -32,7 +32,7 @@ class StreamMonitor:
         page = await self._browser.new_page()
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-            await page.wait_for_timeout(8000)
+            await page.wait_for_timeout(5000)
             content = await page.content()
             if nickname not in self._states:
                 DEBUG_DIR.mkdir(exist_ok=True)
