@@ -28,6 +28,7 @@ CHAT_IDS_FILE = Path(__file__).parent / ".chat_ids"
 PENDING_FILE = Path(__file__).parent / "pending_streamers.json"
 STATES_FILE = Path(__file__).parent / "roulette_states.json"
 ADMIN_CHAT_ID = 292141127
+BACKUP_DIR = Path(__file__).parent / "backups"
 
 CB_APPROVE = "submit_approve:"
 CB_REJECT = "submit_reject:"
@@ -92,6 +93,35 @@ def load_roulette_states() -> dict:
 
 def save_roulette_states(states: dict):
     save_json(STATES_FILE, states)
+
+
+
+# --- Backup ---
+
+BACKUP_FILES = [
+    (".chat_ids", ".chat_ids"),
+    ("pending_streamers.json", "pending_streamers.json"),
+    ("roulette_states.json", "roulette_states.json"),
+    ("config.py", "config.py"),
+]
+
+
+def backup_data():
+    import shutil
+    from datetime import datetime
+    BACKUP_DIR.mkdir(exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    for src_name, dst_name in BACKUP_FILES:
+        src = Path(__file__).parent / src_name
+        if src.exists():
+            dst = BACKUP_DIR / f"{dst_name}.{ts}.bak"
+            shutil.copy2(src, dst)
+    # Keep only last 24 backups per file
+    for src_name, _ in BACKUP_FILES:
+        backups = sorted(BACKUP_DIR.glob(f"{src_name}.*.bak"))
+        for old in backups[:-24]:
+            old.unlink()
+    logger.info(f"Backup completed: {ts}")
 
 
 # --- Streamer management ---
@@ -445,6 +475,14 @@ async def monitoring_loop(bot: Bot):
         # Persist states after each cycle
         save_roulette_states(monitor._states)
         last_cycle_time["time"] = datetime.now().strftime("%H:%M:%S")
+
+        # Hourly backup
+        now = datetime.now()
+        if now.minute == 0 and now.second < 10:
+            try:
+                backup_data()
+            except Exception as e:
+                logger.error(f"Backup failed: {e}")
 
         elapsed = time.monotonic() - cycle_start
         remaining = max(0, CHECK_INTERVAL - elapsed)
