@@ -64,6 +64,12 @@ def load_chat_ids() -> set[int]:
 
 
 def save_chat_ids(ids: set[int]):
+    # Safety: don't overwrite if we loaded nothing but file has data
+    if not ids and CHAT_IDS_FILE.exists():
+        existing = load_chat_ids()
+        if existing:
+            logger.warning("Refusing to save empty chat_ids - file has data")
+            return
     CHAT_IDS_FILE.write_text("\n".join(str(i) for i in sorted(ids)))
 
 
