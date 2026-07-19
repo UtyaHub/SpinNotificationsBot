@@ -51,18 +51,15 @@ def save_json(path: Path, data):
 # --- Chat IDs ---
 
 def load_chat_ids() -> set[int]:
-    raw = load_json(CHAT_IDS_FILE, [])
-    if isinstance(raw, list):
-        return {int(x) for x in raw if str(x).lstrip("-").isdigit()}
     ids = set()
-    text = CHAT_IDS_FILE.read_text() if CHAT_IDS_FILE.exists() else ""
-    for line in text.splitlines():
-        line = line.strip()
-        if line:
-            try:
-                ids.add(int(line))
-            except ValueError:
-                pass
+    if CHAT_IDS_FILE.exists():
+        for line in CHAT_IDS_FILE.read_text().splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    ids.add(int(line))
+                except ValueError:
+                    pass
     return ids
 
 
