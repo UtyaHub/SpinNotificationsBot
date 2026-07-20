@@ -14,7 +14,7 @@ from aiogram.types import (
     InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery,
 )
 
-from config import TELEGRAM_TOKEN, STREAMERS, CHECK_INTERVAL, INACTIVE_CHECK_INTERVAL, URL_TEMPLATE
+from config import TELEGRAM_TOKEN, STREAMERS, CHECK_INTERVAL, URL_TEMPLATE
 from monitor import StreamMonitor
 
 logging.basicConfig(
@@ -307,28 +307,6 @@ async def cmd_unmute(message: Message):
     await message.answer("Уведомления включены!")
 
 
-
-@router.message(Command("all"))
-async def cmd_all(message: Message):
-    if message.from_user.id != ADMIN_CHAT_ID:
-        await message.answer("Только админ может использовать эту команду.")
-        return
-
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer("Укажите текст:\n/all сообщение для всех")
-        return
-
-    text = parts[1].strip()
-    sent = 0
-    for cid in list(chat_ids):
-        try:
-            await message.bot.send_message(chat_id=cid, text=text, disable_web_page_preview=True)
-            sent += 1
-        except Exception as e:
-            logger.error(f"Failed to send to {cid}: {e}")
-    await message.answer(f"Сообщение отправлено {sent} чатам.")
-
 @router.message(Command("submit"))
 async def cmd_submit(message: Message):
     parts = message.text.split(maxsplit=1)
@@ -353,19 +331,19 @@ async def cmd_submit(message: Message):
         await message.answer(f"Стример {nickname} уже отслеживается!")
         return
 
-    # Check if roulette is active - first from cache, then by API
+    # Check if roulette is active - first from cache, then by checking page
     state = monitor._states.get(nickname)
     if not state or not state.get("active"):
-        check_url = URL_TEMPLATE.format(nickname)
-        res = await monitor.check_streamer(nickname, check_url)
-        if res.get("active"):
-            state = {"active": True, "timer": res.get("timer")}
-        elif res.get("error"):
-            logger.warning(f"Failed to check {nickname}: {res['error']}, sending to admin")
+        try:
+            check_url = URL_TEMPLATE.format(nickname)
+            res = await monitor.check_streamer(nickname, check_url)
+            if res.get("active"):
+                state = {"active": True, "timer": res.get("timer")}
+            else:
+                state = None
+        except Exception as e:
+            logger.error(f"Failed to check {nickname}: {e}")
             state = None
-        else:
-            state = None
-
 
     if state and state.get("active"):
         add_streamer(nickname)
@@ -461,9 +439,8 @@ async def check_one(nickname):
 
 
 async def monitoring_loop(bot: Bot):
-    global last_cycle_time, last_backup_time
+    global last_cycle_time
     CONCURRENT_CHECKS = 10
-    _last_check: dict[str, float] = {}
 
     while True:
         if not chat_ids:
@@ -471,25 +448,10 @@ async def monitoring_loop(bot: Bot):
             continue
 
         cycle_start = time.monotonic()
-        now = cycle_start
         current_streamers = list(STREAMERS)
 
-        # Smart polling: skip streamers checked recently
-        to_check = []
-        for n in current_streamers:
-            state = monitor._states.get(n)
-            is_active = state.get("active") if state else None
-            interval = CHECK_INTERVAL if is_active else INACTIVE_CHECK_INTERVAL
-            last = _last_check.get(n, 0)
-            if now - last >= interval:
-                to_check.append(n)
-
-        if not to_check:
-            await asyncio.sleep(10)
-            continue
-
-        for i in range(0, len(to_check), CONCURRENT_CHECKS):
-            batch = to_check[i : i + CONCURRENT_CHECKS]
+        for i in range(0, len(current_streamers), CONCURRENT_CHECKS):
+            batch = current_streamers[i : i + CONCURRENT_CHECKS]
 
             results = await asyncio.gather(
                 *(check_one(n) for n in batch), return_exceptions=True
@@ -501,20 +463,21 @@ async def monitoring_loop(bot: Bot):
                     continue
 
                 nickname, url, res = result
-                _last_check[nickname] = now
 
                 if res.get("error"):
                     logger.error(f"Error checking {nickname}: {res['error']}")
                     continue
 
-                if (res.get("changed")) and res.get("active"):
+                if (res.get("changed") or res.get("first_check")) and res.get("active"):
                     timer = res.get("timer", "")
                     await notify_all(bot, build_start_notification(nickname, url, timer))
                     logger.info(f"Notification sent for {nickname}")
 
+        # Persist states after each cycle
         save_roulette_states(monitor._states)
         last_cycle_time["time"] = datetime.now().strftime("%H:%M:%S")
 
+        # Hourly backup (once per hour from bot start)
         elapsed_total = time.monotonic()
         if elapsed_total - last_backup_time >= 3600:
             last_backup_time = elapsed_total
@@ -523,12 +486,14 @@ async def monitoring_loop(bot: Bot):
             except Exception as e:
                 logger.error(f"Backup failed: {e}")
 
+        elapsed = time.monotonic() - cycle_start
+        remaining = max(0, CHECK_INTERVAL - elapsed)
         active_count = sum(1 for v in monitor._states.values() if v.get("active"))
         logger.info(
-            f"Cycle: {active_count} active, {len(to_check)}/{len(current_streamers)} checked, "
-            f"{time.monotonic() - cycle_start:.1f}s"
+            f"Cycle: {active_count} active, {len(STREAMERS)} checked, "
+            f"{elapsed:.0f}s, next in {remaining:.0f}s"
         )
-        await asyncio.sleep(5)
+        await asyncio.sleep(remaining)
 
 
 # --- Main ---
@@ -568,8 +533,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-
-
