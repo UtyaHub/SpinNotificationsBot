@@ -439,7 +439,7 @@ async def check_one(nickname):
 
 
 async def monitoring_loop(bot: Bot):
-    global last_cycle_time
+    global last_cycle_time, last_backup_time
     CONCURRENT_CHECKS = 10
 
     while True:
@@ -533,3 +533,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
